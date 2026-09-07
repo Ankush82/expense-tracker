@@ -1,5 +1,7 @@
 import os
 import sys
+
+import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
@@ -10,18 +12,29 @@ api_dir = os.path.dirname(test_dir)
 # Add the api directory to the sys.path
 sys.path.insert(0, api_dir)
 
-# Set environment variables
-os.environ['API_V1_STR'] = '/api/v1'
-os.environ['VERSION'] = '0.1.0'
-os.environ['POSTGRES_SERVER'] = 'localhost'
-os.environ['POSTGRES_USER'] = 'test'
-os.environ['POSTGRES_PASSWORD'] = 'test'
-os.environ['POSTGRES_DB'] = 'test'
-os.environ['REDIS_HOST'] = 'localhost'
-os.environ['REDIS_PORT'] = '6379'
-os.environ['REDIS_PASSWORD'] = ''
-os.environ['REDIS_DB'] = '0'
-os.environ['SECRET_KEY'] = 'test-secret-key'
+
+@pytest.fixture(autouse=True)
+def _health_test_env(monkeypatch):
+    """Real bug, found live on STORY-0.2: these used to be permanent
+    `os.environ[...] = ...` assignments at module import time, which
+    leak into every OTHER test file that runs later in the same pytest
+    session (e.g. POSTGRES_USER='test' overriding what
+    test_story_0_2_migration.py needs, producing a real
+    `role "test" does not exist` failure that only shows up when the
+    whole suite runs together, never in this file alone). monkeypatch
+    restores every value automatically after each test."""
+    monkeypatch.setenv('API_V1_STR', '/api/v1')
+    monkeypatch.setenv('VERSION', '0.1.0')
+    monkeypatch.setenv('POSTGRES_SERVER', 'localhost')
+    monkeypatch.setenv('POSTGRES_USER', 'test')
+    monkeypatch.setenv('POSTGRES_PASSWORD', 'test')
+    monkeypatch.setenv('POSTGRES_DB', 'test')
+    monkeypatch.setenv('REDIS_HOST', 'localhost')
+    monkeypatch.setenv('REDIS_PORT', '6379')
+    monkeypatch.setenv('REDIS_PASSWORD', '')
+    monkeypatch.setenv('REDIS_DB', '0')
+    monkeypatch.setenv('SECRET_KEY', 'test-secret-key')
+
 
 def test_health_check():
     # Import the app (which will use the environment variables)

@@ -27,7 +27,7 @@ class Settings(BaseSettings):
             username=values.get("POSTGRES_USER"),
             password=values.get("POSTGRES_PASSWORD"),
             host=values.get("POSTGRES_SERVER"),
-            path=f"/{values.get('POSTGRES_DB') or ''}",
+            path=values.get('POSTGRES_DB'),
         )
 
     # Redis
@@ -48,7 +48,7 @@ class Settings(BaseSettings):
             host=values.get("REDIS_HOST"),
             port=values.get("REDIS_PORT"),
             password=values.get("REDIS_PASSWORD"),
-            path=f"/{values.get('REDIS_DB')}",
+            path=str(values.get('REDIS_DB')),
         )
 
     # Mailhog (for local development)
