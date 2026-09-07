@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install Python dependencies
+        run: |
+          pip install ruff
+      
+      - name: Run ruff
+        working-directory: ./api
+        run: ruff check .
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install Node dependencies
+        working-directory: ./web
+        run: npm ci
+      
+      - name: Run eslint
+        working-directory: ./web
+        run: npm run lint
+
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install Python dependencies
+        working-directory: ./api
+        run: pip install -r requirements.txt
+      
+      - name: Run mypy
+        working-directory: ./api
+        run: mypy app
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install Node dependencies
+        working-directory: ./web
+        run: npm ci
+      
+      - name: Run TypeScript check
+        working-directory: ./web
+        run: npm run type-check
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: expense_user
+          POSTGRES_PASSWORD: expense_pass
+          POSTGRES_DB: expense_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install Python dependencies
+        working-directory: ./api
+        run: pip install -r requirements.txt
+      
+      - name: Run API tests
+        working-directory: ./api
+        env:
+          POSTGRES_SERVER: localhost
+          POSTGRES_USER: expense_user
+          POSTGRES_PASSWORD: expense_pass
+          POSTGRES_DB: expense_db
+          REDIS_HOST: localhost
+        run: pytest
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install Node dependencies
+        working-directory: ./web
+        run: npm ci
+      
+      - name: Run Web tests
+        working-directory: ./web
+        run: npm run test -- --run
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build API Docker image
+        run: docker build -t expense-tracker-api ./api
+      
+      - name: Build Web Docker image
+        run: docker build -t expense-tracker-web ./web
