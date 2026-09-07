@@ -51,6 +51,7 @@ Services will be available at:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `SECRET_KEY` | **Yes** | — | Secret key for JWT token signing. Generate a secure random string. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | No | `3840` (8 days) | JWT access token expiry time, in minutes. |
 | `POSTGRES_SERVER` | **Yes** | — | PostgreSQL host address. In Docker, use the service name `postgres`. |
 | `POSTGRES_USER` | **Yes** | — | PostgreSQL username. |
 | `POSTGRES_PASSWORD` | **Yes** | — | PostgreSQL password. |
