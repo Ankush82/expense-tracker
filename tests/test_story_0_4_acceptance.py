@@ -304,6 +304,20 @@ def test_visibility_filter_shows_own_expenses_and_active_group_expenses_only(db_
         status="confirmed",
     )
     db_session.add_all([own_expense, group_expense, invisible_expense])
+    # Story 11.2 tightened visibility_filter's own default: a group-mate's
+    # expense is only visible to OTHER members once its owner has
+    # explicitly set level=full for that group (Story 11.1's own default,
+    # "aggregate", shows no individual expense rows to other members --
+    # that WAS the real privacy gap 11.2 closes, not a regression this
+    # test should paper over). An explicit full-visibility row for
+    # stranger in my_group is what makes group_expense visible to caller
+    # below, same as it would need to be through the real PUT
+    # /groups/{id}/visibility endpoint.
+    from app.models.member_visibility import MemberVisibility, VisibilityLevel
+
+    db_session.add(
+        MemberVisibility(group_id=my_group.id, user_id=stranger.id, level=VisibilityLevel.FULL)
+    )
     db_session.commit()
 
     query = visibility_filter(select(Expense), caller, db_session)
