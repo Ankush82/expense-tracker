@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.routers import groups
 import psycopg2
 import redis
 from typing import Dict, Any
@@ -10,6 +11,8 @@ app = FastAPI(
     version=settings.VERSION,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+app.include_router(groups.router)
 
 # Set up CORS
 app.add_middleware(
