@@ -6,6 +6,7 @@ from app.models.group import Group
 from app.models.group_invite import GroupInvite
 from app.models.group_member import GroupMember, GroupRole
 from app.models.hidden_category import HiddenCategory
+from app.models.member_visibility import MemberVisibility, VisibilityLevel
 from app.models.user import User
 
 __all__ = [
@@ -20,5 +21,7 @@ __all__ = [
     "GroupMember",
     "GroupRole",
     "HiddenCategory",
+    "MemberVisibility",
     "User",
+    "VisibilityLevel",
 ]
