@@ -4,6 +4,7 @@ from app.models.budget import Budget, BudgetPeriod, BudgetScope
 from app.models.category import Category
 from app.models.expense import Expense, ExpenseSource, ExpenseStatus
 from app.models.group import Group
+from app.models.group_activity import GroupActivity
 from app.models.group_invite import GroupInvite
 from app.models.group_member import GroupMember, GroupRole
 from app.models.hidden_category import HiddenCategory
@@ -21,6 +22,7 @@ __all__ = [
     "ExpenseSource",
     "ExpenseStatus",
     "Group",
+    "GroupActivity",
     "GroupInvite",
     "GroupMember",
     "GroupRole",

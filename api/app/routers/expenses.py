@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.activity import record
 from app.core.db import get_db
 from app.core.security import get_current_user, visibility_filter
 from app.models.audit_log import AuditLog
@@ -158,6 +159,19 @@ def create_expense(
         idempotency_key=idempotency_key,
     )
     db.add(expense)
+    db.flush()  # real expense.id, needed for the activity event's entity_id, before commit
+    if group_id is not None:
+        # Story 9.1: only a GROUP expense has a group feed to appear in
+        # -- a personal expense (group_id is None) has nothing to log.
+        record(
+            db,
+            group_id=group_id,
+            actor_user_id=current_user.id,
+            event_type="expense_added",
+            entity_type="expense",
+            entity_id=str(expense.id),
+            metadata={"merchant": expense.merchant_raw, "amount_minor": expense.amount_minor, "currency": expense.currency},
+        )
     db.commit()
     db.refresh(expense)
     return _to_response(expense)
@@ -370,6 +384,16 @@ def update_expense(
                 after=after,
             )
         )
+        if expense.group_id is not None:
+            record(
+                db,
+                group_id=expense.group_id,
+                actor_user_id=current_user.id,
+                event_type="expense_edited",
+                entity_type="expense",
+                entity_id=str(expense.id),
+                metadata={"changed_fields": sorted(before.keys())},
+            )
 
     db.commit()
     db.refresh(expense)
@@ -403,6 +427,16 @@ def delete_expense(
             after=None,
         )
     )
+    if expense.group_id is not None:
+        record(
+            db,
+            group_id=expense.group_id,
+            actor_user_id=current_user.id,
+            event_type="expense_deleted",
+            entity_type="expense",
+            entity_id=str(expense.id),
+            metadata=None,
+        )
     db.commit()
 
 
