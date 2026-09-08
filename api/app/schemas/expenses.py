@@ -1,15 +1,28 @@
 """Story 3.1 request/response shapes and the validation the story's own
 VALIDATION section requires. Every rejection here surfaces as a 422 with
-a field-level error map (never a bare 500) -- `field_error` below is the
-same shape FastAPI's own pydantic-validation 422 body uses, so a DB-level
-check (category ownership, group membership) that the router itself must
-perform reads identically to a pydantic-level one."""
+a field-level error map (never a bare 500) -- app.core.errors.field_error
+is the same shape FastAPI's own pydantic-validation 422 body uses, so a
+DB-level check (category ownership, group membership) that the router
+itself must perform reads identically to a pydantic-level one. (Moved to
+app.core.errors by Story 3.4, which needs the identical helper for its
+own DB-level checks -- re-exported here so nothing that already imports
+field_error from this module breaks.)"""
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from fastapi import HTTPException, status
 from pydantic import BaseModel, field_validator
+
+from app.core.errors import field_error
+
+__all__ = [
+    "SUPPORTED_CURRENCIES",
+    "ExpenseCreate",
+    "ExpenseListResponse",
+    "ExpenseResponse",
+    "ExpenseUpdate",
+    "field_error",
+]
 
 # Not exhaustive ISO-4217 -- the currencies this product actually expects
 # to see (an India-first expense tracker with occasional foreign-card
@@ -21,13 +34,6 @@ SUPPORTED_CURRENCIES = frozenset(
 
 _MAX_AMOUNT_MINOR = 100_000_000_000
 _MIN_OCCURRED_AT_DATE = date(2000, 1, 1)
-
-
-def field_error(field: str, msg: str) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        detail=[{"loc": ["body", field], "msg": msg, "type": "value_error"}],
-    )
 
 
 class ExpenseCreate(BaseModel):
