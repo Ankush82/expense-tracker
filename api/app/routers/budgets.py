@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.activity import record
 from app.core.db import get_db
 from app.core.errors import field_error
 from app.core.security import get_current_user
@@ -199,6 +200,21 @@ def create_budget(
     )
     db.add(budget)
     try:
+        db.flush()  # real budget.id, needed for the activity event's entity_id, before commit
+        if group_id is not None:
+            record(
+                db,
+                group_id=group_id,
+                actor_user_id=current_user.id,
+                event_type="budget_created",
+                entity_type="budget",
+                entity_id=str(budget.id),
+                metadata={
+                    "period": BudgetPeriod(budget.period).value,
+                    "amount_minor": budget.amount_minor,
+                    "currency": budget.currency,
+                },
+            )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -297,6 +313,17 @@ def update_budget(
     if "is_active" in update_fields and body.is_active is not None:
         budget.is_active = body.is_active
     budget.updated_at = datetime.now(UTC)
+
+    if update_fields and budget.group_id is not None:
+        record(
+            db,
+            group_id=budget.group_id,
+            actor_user_id=current_user.id,
+            event_type="budget_updated",
+            entity_type="budget",
+            entity_id=str(budget.id),
+            metadata={"changed_fields": sorted(update_fields)},
+        )
 
     try:
         db.commit()
