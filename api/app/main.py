@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.routers import groups
+from app.routers import email_integrations, groups
 
 app = FastAPI(
     title=settings.API_V1_STR,
@@ -15,6 +15,7 @@ app = FastAPI(
 )
 
 app.include_router(groups.router)
+app.include_router(email_integrations.router)
 
 # Set up CORS
 app.add_middleware(

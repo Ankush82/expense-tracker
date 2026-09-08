@@ -231,3 +231,16 @@ def get_editable_expense_fields(current_user: User, expense: Expense, db: Sessio
         return None  # a plain member has no edit rights on someone else's expense
 
     return _GROUP_LINKAGE_ONLY_FIELDS
+
+
+def require_global_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Story 4.2: gates the admin endpoint for adding to the global
+    `transaction_senders` registry. No other story has defined a real
+    global-admin role/table yet, so this is deliberately the simplest
+    real mechanism available -- an env var allowlist
+    (settings.admin_emails), matched case-insensitively against the
+    caller's own real email. 403s (not 404 -- admin-only endpoints
+    existing is not itself sensitive) for anyone not on the list."""
+    if current_user.email.lower() not in settings.admin_emails:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin access required")
+    return current_user
