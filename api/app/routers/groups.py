@@ -9,7 +9,7 @@ Epic 2's implementation."""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -53,5 +53,5 @@ def delete_group(
     group = db.get(Group, group_id)
     if group is None or group.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="group not found")
-    group.deleted_at = datetime.now(timezone.utc)
+    group.deleted_at = datetime.now(UTC)
     db.commit()

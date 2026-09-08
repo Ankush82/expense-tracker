@@ -1,0 +1,9 @@
+# B008 ("function call in argument default") is a real flake8-bugbear
+# rule for a real footgun in general Python -- but FastAPI's own
+# dependency-injection contract REQUIRES `Depends(...)` as a parameter
+# default (that's how FastAPI recognizes a dependency at all); FastAPI's
+# own official docs call this exact rule out as a false positive worth
+# ignoring for that reason. Scoped to this one rule, not a blanket
+# ignore -- every other check ruff enables by default still applies.
+[lint]
+ignore = ["B008"]

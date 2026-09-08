@@ -30,7 +30,7 @@ and Story 1.1 can call.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
@@ -74,7 +74,7 @@ def create_access_token(user_id: uuid.UUID, *, expires_delta: timedelta | None =
     calls this after resolving/creating the User row; this story's own
     tests call it to obtain a real, valid token rather than hand-rolling
     JWT bytes and silently drifting from whatever Story 1.1 later does."""
-    expire = datetime.now(timezone.utc) + (
+    expire = datetime.now(UTC) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     payload = {"sub": str(user_id), "exp": expire}
