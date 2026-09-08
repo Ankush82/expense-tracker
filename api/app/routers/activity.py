@@ -1,13 +1,26 @@
-"""Story 9.1: GET /groups/{id}/activity -- the read side of the feed.
+"""Story 9.1 (feed) + Story 11.2 (visibility enforcement): GET
+/groups/{id}/activity -- the read side of the feed.
 
-Rule enforced here (the story's own words): "Feed entries respect Epic
-11 visibility: if a member hides expense detail, their expense_added
-event renders as 'Priya added an expense' with no merchant or amount."
-Applied per-event, keyed on the ACTING user's own member_visibility
-level in this group (level != full for an expense_* event redacts its
-metadata) -- never the viewer's own level, and never applied to a
-viewer looking at their OWN events (you always see your own real data;
-the level only restricts what OTHER members see of you).
+Two distinct real behaviors, matching Story 11.1's own definitions of
+"aggregate" vs "hidden" exactly (this router's redaction used to treat
+them identically -- Story 11.2 splits them for real):
+  - level=hidden: "the user contributes nothing to group views" (Story
+    11.1's own words) -- their expense_* events are excluded from the
+    feed ENTIRELY, at the DB-query layer, before pagination is applied
+    (never fetched, then hidden -- Story 11.2's own explicit rule: "Never
+    fetch-then-hide in the client").
+  - level=aggregate (or no row yet -- Story 11.1's own default):
+    "totals and category shares, but not individual merchants or
+    amounts" -- the EVENT still appears (something real happened, that
+    much is a legitimate aggregate-level signal), but its metadata is
+    redacted to {"redacted": true}, matching the story's own example:
+    "Priya added an expense" with no merchant or amount.
+  - level=full: real, complete metadata.
+
+Applied per-event, keyed on the ACTING user's own level in this group --
+never the viewer's own level, and never applied to a viewer looking at
+their OWN events (Story 11.1: "The viewer always sees their own data in
+full").
 
 Collapsing consecutive similar events by the same actor within 10
 minutes ("Ankush added 4 expenses") is explicitly a CLIENT-side rule
@@ -19,7 +32,7 @@ import base64
 import uuid
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -61,6 +74,27 @@ def get_activity_feed(
         query = query.where(GroupActivity.event_type.in_(types))
     if cursor is not None:
         query = query.where(GroupActivity.id < _decode_cursor(cursor))
+
+    # Story 11.2: exclude a hidden-level actor's events entirely, in the
+    # query itself -- before pagination, not after. "id" (not just
+    # user_id) in the correlation keeps this a real correlated subquery
+    # per row rather than an accidental cross join.
+    actor_is_hidden = (
+        select(MemberVisibility.id)
+        .where(
+            MemberVisibility.group_id == GroupActivity.group_id,
+            MemberVisibility.user_id == GroupActivity.actor_user_id,
+            MemberVisibility.level == VisibilityLevel.HIDDEN.value,
+        )
+        .exists()
+    )
+    query = query.where(
+        or_(
+            GroupActivity.actor_user_id == membership.user_id,  # always see your own
+            GroupActivity.actor_user_id.is_(None),  # a system/no-actor event, if one ever exists
+            not_(actor_is_hidden),
+        )
+    )
 
     query = query.order_by(GroupActivity.id.desc()).limit(limit + 1)
     rows = list(db.execute(query).scalars().all())

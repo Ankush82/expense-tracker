@@ -199,7 +199,12 @@ def test_budget_created_and_updated_appear_in_feed(client, db_session):
 
 
 def test_restricted_members_events_show_no_amounts_to_other_members(client, db_session):
-    """The story's own AC, verbatim."""
+    """The story's own AC, verbatim: "A restricted member's events show
+    no amounts to other members." Story 11.2 refined this into two real,
+    distinct behaviors matching Story 11.1's own definitions exactly --
+    aggregate (still appears, redacted -- tested here) vs hidden
+    (excluded entirely -- tested separately below, in
+    test_hidden_level_excludes_the_event_from_the_feed_entirely)."""
     from app.models.group_member import GroupRole
 
     owner = _make_user(db_session, suffix="redact-owner")
@@ -209,7 +214,7 @@ def test_restricted_members_events_show_no_amounts_to_other_members(client, db_s
     _add_member(db_session, group_id=uuid.UUID(group["id"]), user_id=payer.id, role=GroupRole.MEMBER)
     db_session.commit()
 
-    client.put(f"/groups/{group['id']}/visibility", json={"level": "hidden"}, headers=_bearer(payer.id))
+    client.put(f"/groups/{group['id']}/visibility", json={"level": "aggregate"}, headers=_bearer(payer.id))
     client.post(
         "/expenses",
         json=_expense_body(group_id=group["id"], merchant="Secret Merchant", amount_minor=99999),
@@ -219,8 +224,34 @@ def test_restricted_members_events_show_no_amounts_to_other_members(client, db_s
     feed = client.get(f"/groups/{group['id']}/activity", headers=_bearer(owner.id)).json()
     add_event = next(e for e in feed["items"] if e["event_type"] == "expense_added")
     assert add_event["metadata"] == {"redacted": True}
-    assert "amount_minor" not in (add_event["metadata"] or {})
-    assert "merchant" not in (add_event["metadata"] or {})
+
+
+def test_hidden_level_excludes_the_event_from_the_feed_entirely(client, db_session):
+    """Story 11.1's own words for hidden: "the user contributes nothing
+    to group views." Story 11.2 enforces this literally for the
+    activity feed -- not a redacted stub, no row at all, filtered at
+    the query layer before pagination (never fetch-then-hide)."""
+    from app.models.group_member import GroupRole
+
+    owner = _make_user(db_session, suffix="hidden-feed-owner")
+    db_session.commit()
+    group = _make_group(client, owner, name="Hidden Feed Group")
+    payer = _make_user(db_session, suffix="hidden-feed-payer")
+    _add_member(db_session, group_id=uuid.UUID(group["id"]), user_id=payer.id, role=GroupRole.MEMBER)
+    db_session.commit()
+
+    client.put(f"/groups/{group['id']}/visibility", json={"level": "hidden"}, headers=_bearer(payer.id))
+    client.post(
+        "/expenses", json=_expense_body(group_id=group["id"], merchant="Fully Hidden"), headers=_bearer(payer.id)
+    )
+
+    feed = client.get(f"/groups/{group['id']}/activity", headers=_bearer(owner.id)).json()
+    assert not any(e["event_type"] == "expense_added" for e in feed["items"])
+
+    # But the hidden-level actor still sees their own event, in full.
+    own_feed = client.get(f"/groups/{group['id']}/activity", headers=_bearer(payer.id)).json()
+    own_event = next(e for e in own_feed["items"] if e["event_type"] == "expense_added")
+    assert own_event["metadata"]["merchant"] == "Fully Hidden"
 
 
 def test_full_visibility_member_shows_real_metadata_to_others(client, db_session):

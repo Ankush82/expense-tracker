@@ -111,6 +111,20 @@ def _bearer(user_id: uuid.UUID) -> dict[str, str]:
     return {"Authorization": f"Bearer {create_access_token(user_id)}"}
 
 
+def _set_full_visibility(db_session, *, group_id, user_id) -> None:
+    """Story 11.2: visibility_filter now requires an explicit
+    level=full row before a group-mate's expense is visible to OTHER
+    members at all -- tests written before that story assumed every
+    group-mate's expense was visible by default (Story 0.4's original,
+    real privacy gap). Commits immediately since these tests' fixtures
+    generally run through the `client` fixture's own separate DB
+    session right after."""
+    from app.models.member_visibility import MemberVisibility, VisibilityLevel
+
+    db_session.add(MemberVisibility(group_id=group_id, user_id=user_id, level=VisibilityLevel.FULL))
+    db_session.commit()
+
+
 def _system_category_id(db_session) -> str:
     from app.models.category import Category
 
@@ -309,6 +323,12 @@ def test_group_admin_cannot_delete_a_members_expense(client, db_session):
     created = client.post(
         "/expenses", json=_valid_body(group_id=str(group.id)), headers=_bearer(member.id)
     ).json()
+    # Story 11.2: admin must actually be able to SEE this expense (full
+    # visibility) for the assertion below to be a real 403 (permission
+    # denied) rather than a 404 (can't even see it) -- both are real,
+    # correct outcomes for an admin trying to delete someone else's
+    # expense, but this test is specifically checking the 403 path.
+    _set_full_visibility(db_session, group_id=group.id, user_id=member.id)
 
     response = client.delete(f"/expenses/{created['id']}", headers=_bearer(admin.id))
     assert response.status_code == 403
@@ -354,6 +374,7 @@ def test_fellow_group_member_can_see_but_not_edit_the_expense(client, db_session
     created = client.post(
         "/expenses", json=_valid_body(group_id=str(group.id)), headers=_bearer(payer.id)
     ).json()
+    _set_full_visibility(db_session, group_id=group.id, user_id=payer.id)  # Story 11.2
 
     get_response = client.get(f"/expenses/{created['id']}", headers=_bearer(owner.id))
     assert get_response.status_code == 200
@@ -422,6 +443,7 @@ def test_patch_by_non_owner_group_member_is_403(client, db_session):
     created = client.post(
         "/expenses", json=_valid_body(group_id=str(group.id)), headers=_bearer(payer.id)
     ).json()
+    _set_full_visibility(db_session, group_id=group.id, user_id=payer.id)  # Story 11.2
 
     response = client.patch(
         f"/expenses/{created['id']}", json={"amount_minor": 1}, headers=_bearer(other_member.id)

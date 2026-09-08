@@ -14,8 +14,8 @@ allowed to do this" lives in this one module:
     minimum_role's rank. Role order: owner > admin > member.
   - visibility_filter(): the single function every query returning
     expenses must go through to restrict results to what the caller
-    may see (Epic 11's privacy settings will extend this later, not
-    replace it).
+    may see. Extended by Story 11.2 to also enforce Story 11.1's own
+    member_visibility levels -- see its own docstring.
   - get_editable_expense_fields(): the resource-ownership rule --
     see /docs/permissions.md for the full matrix this implements.
 
@@ -34,13 +34,14 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
 from app.models.expense import Expense
 from app.models.group_member import GroupMember, GroupRole
+from app.models.member_visibility import MemberVisibility, VisibilityLevel
 from app.models.user import User
 
 _JWT_ALGORITHM = "HS256"
@@ -182,16 +183,37 @@ def visibility_filter(query: Select, current_user: User, db: Session) -> Select:
     """The single function every query returning `Expense` rows must
     go through to restrict results to what `current_user` may see
     (the story's own requirement -- "no ad-hoc filtering in endpoint
-    code"). Visible = the caller's own expenses, OR any expense
-    attached to a group the caller is currently an active member of.
-    Epic 11 (privacy settings) will extend this function's body later;
-    every future caller keeps calling the same name, so that story
-    doesn't require touching every endpoint that filters expenses."""
+    code"). Visible = the caller's own expenses (always, regardless of
+    their own visibility setting -- Story 11.1's own rule: "The viewer
+    always sees their own data in full"), OR another active group
+    member's expense whose OWNER has explicitly set level=full for that
+    group (Story 11.2).
+
+    A group member with NO row yet (the real, common case right after
+    joining) defaults to "aggregate" (Story 11.1's own default) -- NOT
+    "full" -- so their individual expenses are excluded here just as if
+    they'd explicitly chosen aggregate or hidden. This is a real,
+    deliberate behavior change from Story 0.4's original version (which
+    showed every group-mate's expense unconditionally): that was
+    exactly the privacy gap Epic 11 exists to close, not a regression
+    to preserve. "aggregate"/"hidden" both mean "no individual expense
+    rows to other members" here -- the two levels only differ in what a
+    future AGGREGATE view (totals/category shares, not built yet) would
+    show, which this per-expense filter has nothing to do with."""
     member_group_ids = _active_group_ids_for_user(db, current_user.id)
+    owner_has_full_visibility = (
+        select(MemberVisibility.id)
+        .where(
+            MemberVisibility.group_id == Expense.group_id,
+            MemberVisibility.user_id == Expense.user_id,
+            MemberVisibility.level == VisibilityLevel.FULL.value,
+        )
+        .exists()
+    )
     return query.where(
         or_(
             Expense.user_id == current_user.id,
-            Expense.group_id.in_(member_group_ids),
+            and_(Expense.group_id.in_(member_group_ids), owner_has_full_visibility),
         )
     )
 
