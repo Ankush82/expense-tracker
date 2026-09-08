@@ -11,12 +11,15 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.errors import field_error
 
 __all__ = [
     "SUPPORTED_CURRENCIES",
+    "BulkExpenseCreateRequest",
+    "BulkExpenseFailure",
+    "BulkExpenseResponse",
     "ExpenseCreate",
     "ExpenseListResponse",
     "ExpenseResponse",
@@ -172,3 +175,26 @@ class ExpenseResponse(BaseModel):
 class ExpenseListResponse(BaseModel):
     items: list[ExpenseResponse]
     next_cursor: str | None
+
+
+class BulkExpenseCreateRequest(BaseModel):
+    # Each item is a raw dict, deliberately NOT list[ExpenseCreate]: FastAPI
+    # validates the whole request body against the declared type BEFORE
+    # the endpoint function ever runs, so one bad row would 422 the ENTIRE
+    # batch with no way to save the other 99 -- the story's own AC is the
+    # opposite ("row 7 has a bad amount saves the other 19"). The router
+    # validates each item against ExpenseCreate itself, per-row, inside a
+    # try/except, so a single row's failure never blocks its siblings.
+    items: list[dict] = Field(min_length=1, max_length=100)
+
+    model_config = {"extra": "forbid"}
+
+
+class BulkExpenseFailure(BaseModel):
+    index: int
+    errors: list[dict]
+
+
+class BulkExpenseResponse(BaseModel):
+    created: list[ExpenseResponse]
+    failed: list[BulkExpenseFailure]

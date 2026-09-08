@@ -18,6 +18,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,9 @@ from app.models.expense import Expense, ExpenseSource, ExpenseStatus
 from app.models.group_member import GroupMember
 from app.models.user import User
 from app.schemas.expenses import (
+    BulkExpenseCreateRequest,
+    BulkExpenseFailure,
+    BulkExpenseResponse,
     ExpenseCreate,
     ExpenseListResponse,
     ExpenseResponse,
@@ -157,6 +161,137 @@ def create_expense(
     db.commit()
     db.refresh(expense)
     return _to_response(expense)
+
+
+@router.post("/bulk", response_model=BulkExpenseResponse)
+def create_bulk_expenses(
+    body: BulkExpenseCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> BulkExpenseResponse:
+    """Story 3.3: up to 100 rows in one call. Each row is validated and
+    persisted independently -- one bad row (row 7 has a bad amount, the
+    story's own example) never blocks its siblings; `failed` carries
+    exactly which rows and why, `created` carries everything that made
+    it in. No idempotency handling here (unlike the single POST) -- the
+    story doesn't ask for it, and a spreadsheet paste is a one-shot
+    action, not a flaky-mobile-retry scenario.
+
+    Category/group membership are checked against ONE pre-fetched set
+    per request, not one query per row -- the story's own AC ("a 100-row
+    batch completes in under 3 seconds server-side") is a real N+1-query
+    trap otherwise."""
+    parsed: dict[int, ExpenseCreate] = {}
+    failed: list[BulkExpenseFailure] = []
+
+    for index, raw_item in enumerate(body.items):
+        try:
+            parsed[index] = ExpenseCreate(**raw_item)
+        except ValidationError as exc:
+            failed.append(
+                BulkExpenseFailure(
+                    index=index,
+                    errors=[
+                        {"loc": ["body", *[str(p) for p in e["loc"]]], "msg": e["msg"], "type": e["type"]}
+                        for e in exc.errors()
+                    ],
+                )
+            )
+
+    category_ids: set[uuid.UUID] = set()
+    group_ids: set[uuid.UUID] = set()
+    for item in parsed.values():
+        if item.category_id:
+            try:
+                category_ids.add(uuid.UUID(item.category_id))
+            except ValueError:
+                pass  # caught again, as a real per-row error, in the loop below
+        if item.group_id:
+            try:
+                group_ids.add(uuid.UUID(item.group_id))
+            except ValueError:
+                pass
+
+    categories_by_id: dict[uuid.UUID, Category] = {}
+    if category_ids:
+        for fetched_category in db.execute(select(Category).where(Category.id.in_(category_ids))).scalars():
+            categories_by_id[fetched_category.id] = fetched_category
+
+    member_group_ids: set[uuid.UUID] = set()
+    if group_ids:
+        member_group_ids = {
+            m.group_id
+            for m in db.execute(
+                select(GroupMember).where(
+                    GroupMember.group_id.in_(group_ids),
+                    GroupMember.user_id == current_user.id,
+                    GroupMember.removed_at.is_(None),
+                )
+            ).scalars()
+        }
+
+    created_expenses: list[Expense] = []
+    for index, item in parsed.items():
+        row_errors: list[dict] = []
+        resolved_category_id: uuid.UUID | None = None
+        if item.category_id:
+            try:
+                category_uuid = uuid.UUID(item.category_id)
+            except ValueError:
+                row_errors.append({"loc": ["body", "category_id"], "msg": "not a valid UUID", "type": "value_error"})
+            else:
+                category = categories_by_id.get(category_uuid)
+                visible = category is not None and category.deleted_at is None and (
+                    category.is_system or category.owner_user_id == current_user.id
+                )
+                if not visible:
+                    row_errors.append({"loc": ["body", "category_id"], "msg": "category not found", "type": "value_error"})
+                else:
+                    resolved_category_id = category_uuid
+
+        resolved_group_id: uuid.UUID | None = None
+        if item.group_id:
+            try:
+                group_uuid = uuid.UUID(item.group_id)
+            except ValueError:
+                row_errors.append({"loc": ["body", "group_id"], "msg": "not a valid UUID", "type": "value_error"})
+            else:
+                if group_uuid not in member_group_ids:
+                    row_errors.append(
+                        {
+                            "loc": ["body", "group_id"],
+                            "msg": "caller is not an active member of this group",
+                            "type": "value_error",
+                        }
+                    )
+                else:
+                    resolved_group_id = group_uuid
+
+        if row_errors:
+            failed.append(BulkExpenseFailure(index=index, errors=row_errors))
+            continue
+
+        expense = Expense(
+            user_id=current_user.id,
+            group_id=resolved_group_id,
+            amount_minor=item.amount_minor,
+            currency=item.currency,
+            merchant_raw=item.merchant,
+            category_id=resolved_category_id,
+            occurred_at=item.occurred_at,
+            notes=item.notes,
+            source=ExpenseSource.MANUAL,
+            status=ExpenseStatus.CONFIRMED,
+        )
+        db.add(expense)
+        created_expenses.append(expense)
+
+    db.commit()
+    for expense in created_expenses:
+        db.refresh(expense)
+
+    failed.sort(key=lambda f: f.index)
+    return BulkExpenseResponse(created=[_to_response(e) for e in created_expenses], failed=failed)
 
 
 @router.get("/{expense_id}", response_model=ExpenseResponse)
