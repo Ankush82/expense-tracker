@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.routers import categories, expenses, groups, invites, visibility
+from app.routers import budgets, categories, expenses, groups, invites, visibility
 
 app = FastAPI(
     title=settings.API_V1_STR,
@@ -19,6 +19,7 @@ app.include_router(invites.router)
 app.include_router(visibility.router)
 app.include_router(expenses.router)
 app.include_router(categories.router)
+app.include_router(budgets.router)
 
 # Set up CORS
 app.add_middleware(
