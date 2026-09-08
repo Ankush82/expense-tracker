@@ -1,15 +1,20 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
+from typing import Any
+
 import psycopg2
 import redis
-from typing import Dict, Any
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.core.config import settings
+from app.routers import groups
 
 app = FastAPI(
     title=settings.API_V1_STR,
     version=settings.VERSION,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+app.include_router(groups.router)
 
 # Set up CORS
 app.add_middleware(
@@ -47,7 +52,7 @@ def get_redis_connection():
         return None
 
 @app.get("/healthz", tags=["health"])
-async def health_check() -> Dict[str, Any]:
+async def health_check() -> dict[str, Any]:
     db_conn = get_db_connection()
     redis_conn = get_redis_connection()
     
