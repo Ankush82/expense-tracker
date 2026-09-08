@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     MAILHOG_USER: Optional[str] = None
     MAILHOG_PASSWORD: Optional[str] = None
 
+    # Story 4.2: comma-separated emails allowed to manage the global
+    # transaction_senders registry. No other story has defined a real
+    # global-admin role/table yet -- this is the simple, real mechanism
+    # for now (an env var, not a DB flag), matching this project's
+    # existing config-over-code posture for small, low-churn lists.
+    ADMIN_EMAILS: str = ""
+
+    @property
+    def admin_emails(self) -> set[str]:
+        return {email.strip().lower() for email in self.ADMIN_EMAILS.split(",") if email.strip()}
+
     class Config:
         case_sensitive = True
         env_file = ".env"
